@@ -147,10 +147,10 @@ unsafe fn create_vao(
     );
     gl::VertexAttribPointer(
         2,
-        4,
+        3,
         gl::FLOAT,
         gl::FALSE,
-        4 * size_of::<f32>(),
+        3 * size_of::<f32>(),
         offset::<f32>(0),
     );
     gl::EnableVertexAttribArray(2);
@@ -241,8 +241,14 @@ fn main() {
 
         // Scene setup
         let moon_mesh: mesh::Mesh = Terrain::load("./resources/lunarsurface.obj");
-        let moon_vao =
-            unsafe { create_vao(&moon_mesh.vertices, &moon_mesh.indices, &moon_mesh.colors, &moon_mesh.normals) };
+        let moon_vao = unsafe {
+            create_vao(
+                &moon_mesh.vertices,
+                &moon_mesh.indices,
+                &moon_mesh.colors,
+                &moon_mesh.normals,
+            )
+        };
 
         // Shader setup
         let simple_shader;
@@ -284,42 +290,43 @@ fn main() {
             }
 
             // Handle keyboard input
+            let speed_multiplier = 100.0;
             if let Ok(keys) = pressed_keys.lock() {
                 for key in keys.iter() {
                     match key {
                         // The `VirtualKeyCode` enum is defined here:
                         //    https://docs.rs/winit/0.25.0/winit/event/enum.VirtualKeyCode.html
                         VirtualKeyCode::W => {
-                            let cameraDelta: Vec4 =
-                                camera_mov_correction * Vec4::new(0.0, 0.0, delta_time, 1.0);
+                            let cameraDelta: Vec4 = camera_mov_correction
+                                * Vec4::new(0.0, 0.0, delta_time * speed_multiplier, 1.0);
                             camera_pos += cameraDelta.xyz();
                             // Debug position
                             //println!("Forward z with delta = {}, last rotation matrix = {} camera moved = {}", delta_time, camera_mov_correction, cameraDelta);
                             //println!("New position: {}", camera_pos);
                         }
                         VirtualKeyCode::S => {
-                            let cameraDelta: Vec4 =
-                                camera_mov_correction * Vec4::new(0.0, 0.0, -delta_time, 1.0);
+                            let cameraDelta: Vec4 = camera_mov_correction
+                                * Vec4::new(0.0, 0.0, -delta_time * speed_multiplier, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::A => {
-                            let cameraDelta: Vec4 =
-                                camera_mov_correction * Vec4::new(-delta_time, 0.0, 0.0, 1.0);
+                            let cameraDelta: Vec4 = camera_mov_correction
+                                * Vec4::new(-delta_time * speed_multiplier, 0.0, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::D => {
-                            let cameraDelta: Vec4 =
-                                camera_mov_correction * Vec4::new(delta_time, 0.0, 0.0, 1.0);
+                            let cameraDelta: Vec4 = camera_mov_correction
+                                * Vec4::new(delta_time * speed_multiplier, 0.0, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::Space => {
-                            let cameraDelta: Vec4 =
-                                camera_mov_correction * Vec4::new(0.0, delta_time, 0.0, 1.0);
+                            let cameraDelta: Vec4 = camera_mov_correction
+                                * Vec4::new(0.0, delta_time * speed_multiplier, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::LShift => {
-                            let cameraDelta: Vec4 =
-                                camera_mov_correction * Vec4::new(0.0, -delta_time, 0.0, 1.0);
+                            let cameraDelta: Vec4 = camera_mov_correction
+                                * Vec4::new(0.0, -delta_time * speed_multiplier, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::Up => {
@@ -340,7 +347,7 @@ fn main() {
                     }
                 }
             }
-
+            println!("x = {}, y = {}, z = {}, yaw = {}, pitch = {}", camera_pos.x, camera_pos.y, camera_pos.z, camera_yaw, camera_pitch);
             // Handle mouse movement. delta contains the x and y movement of the mouse since last frame in pixels
             if let Ok(mut delta) = mouse_delta.lock() {
                 // == // Optionally access the acumulated mouse movement between
@@ -350,12 +357,7 @@ fn main() {
             }
             // Camera transforms computing
             let id: glm::Mat4 = glm::identity();
-            // Translation to move the scene contents from [-1, 1] to [-3, -1],
-            // so they can be seen after the projection that flips the axis
-            let translvec_persp: glm::Vec3 = glm::Vec3::new(0.0, 0.0, -2.0);
-            let transl_persp: glm::Mat4 = glm::translate(&id, &translvec_persp);
-            // Perspective transformation, we choose FOV = 100
-            let persp: glm::Mat4 = glm::perspective(window_aspect_ratio, 100.0, 1.0, 1000.0);
+            let persp: glm::Mat4 = glm::perspective(window_aspect_ratio, PI / 2.0, 1.0, 1000.0);
             // xyz camera position translation
             let camera_transl: glm::Mat4 = glm::translate(&id, &camera_pos);
             // Yaw rotation
@@ -364,16 +366,13 @@ fn main() {
             // Pitch rotation
             let rot_pitch_axis: glm::Vec3 = glm::Vec3::new(1.0, 0.0, 0.0);
             let rot_pitch: glm::Mat4 = glm::rotate(&id, camera_pitch, &rot_pitch_axis);
-
             let camera_rot: glm::Mat4 = rot_pitch * rot_yaw;
-
             // Inverse rotation matrix (for the voluntary ex. 1 camera movement correction, view key handler for use)
             // We don't invert the rotation matrix, we create another one with a inverse (-deegree) rotation, which is faster
             camera_mov_correction = glm::rotate(&id, camera_yaw, &rot_yaw_axis)
                 * glm::rotate(&id, -camera_pitch, &rot_pitch_axis);
-
             // Compute the final transformation passed to the vertex shader
-            let transf: glm::Mat4 = persp * transl_persp * camera_rot * camera_transl;
+            let transf: glm::Mat4 = persp * camera_rot * camera_transl;
             unsafe {
                 // Clear the color and depth buffers
                 gl::ClearColor(0.035, 0.046, 0.078, 1.0); // night sky, full opacity
