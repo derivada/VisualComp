@@ -1,7 +1,7 @@
 #version 430 core
 
 in vec4 fragColor;
-in vec4 fragNormal;
+in vec3 fragNormal;
 out vec4 outColor;
 
 void main()
@@ -9,7 +9,7 @@ void main()
     // outColor = fragNormal; // Normal color
     // outColor = fragColor; // Solid color
 	// Basic lightning 
-    vec4 lightDirection = normalize(vec4(0.8, -0.5, 0.6, 0.0));
+    vec3 lightDirection = normalize(vec3(0.8, -0.5, 0.6));
     outColor.x = fragColor.x * max(0, dot(fragNormal, -lightDirection));
     outColor.y = fragColor.y * max(0, dot(fragNormal, -lightDirection));
     outColor.z = fragColor.z * max(0, dot(fragNormal, -lightDirection));

@@ -13,8 +13,8 @@ mod shader;
 mod util;
 mod mesh;
 mod scene_graph;
+mod toolbox;
 
-use gl::{self, TRIANGLES};
 use glm :: {identity, Vec4};
 use glutin::event::{
     DeviceEvent,
@@ -25,7 +25,7 @@ use glutin::event::{
 };
 use glutin::event_loop::ControlFlow;
 use shader::Shader;
-use std::f32::consts::PI;
+use std::{f32::consts::PI, mem::ManuallyDrop, pin::Pin};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::{mem, os::raw::c_void, ptr};
@@ -169,20 +169,92 @@ unsafe fn create_vao(
 }
 
 unsafe fn draw_scene(node: &scene_graph::SceneNode,
-    view_projection_matrix: &glm::Mat4,
-    transformation_so_far: &glm::Mat4,
+    view_projection_matrix: glm::Mat4,
+    mut transformation_so_far: glm::Mat4,
     vertex_shader: &Shader) {
+    // Compute relative transformation from node position and rotation
+    let mut relative_trans: glm::Mat4 = glm::identity(); 
+    relative_trans = glm::translation(&-node.reference_point) * relative_trans; // Reference point to origin
+    relative_trans = glm::rotation( node.rotation.z, &glm::Vec3::new(0.0, 0.0, 1.0)) * relative_trans; // Z Rotation
+    relative_trans = glm::rotation( node.rotation.y, &glm::Vec3::new(0.0, 1.0, 0.0)) * relative_trans; // Y Rotation
+    relative_trans = glm::rotation( node.rotation.x, &glm::Vec3::new(1.0, 0.0, 0.0)) * relative_trans; // X Rotation
+    relative_trans = glm::scaling(&node.scale) * relative_trans; // Scaling
+    relative_trans = glm::translation(&node.reference_point) * relative_trans;  // Reference point back
+    relative_trans = glm::translation(&node.position) * relative_trans; // Translation
+    
+    // Combine it with current tranformation
+    transformation_so_far = transformation_so_far * relative_trans;
+
     // Check if node is drawable, if so: set uniforms and draw
     if node.index_count > 0 {
+        // The final MVP Matrix
+        let mvp_matrix: glm::Mat4 = view_projection_matrix * transformation_so_far;
+        let normal_matrix: glm::Mat4 = transformation_so_far;
         gl::BindVertexArray(node.vao_id);
-        gl::UniformMatrix4fv(vertex_shader.get_uniform_location("view_proj"), 1, gl::FALSE, view_projection_matrix.as_ptr());
-        gl::UniformMatrix4fv(vertex_shader.get_uniform_location("trasnf"), 1, gl::FALSE, transformation_so_far.as_ptr());
+        gl::UniformMatrix4fv(3, 1, gl::FALSE, mvp_matrix.as_ptr());
+        gl::UniformMatrix4fv(4, 1, gl::FALSE, normal_matrix.as_ptr());
+
         gl::DrawElements(gl::TRIANGLES, node.index_count, gl::UNSIGNED_INT, offset::<u32>(0));
     }
     // Recurse
     for &child in &node.children {
         draw_scene(&*child, view_projection_matrix, transformation_so_far, vertex_shader);
     }   
+}
+
+pub struct Helicopter {
+    pub path_offset: f32,
+    pub main_rotor_speed: f32,
+    pub tail_rotor_speed: f32,
+    body: ManuallyDrop<Pin<Box<SceneNode>>>,
+    door: ManuallyDrop<Pin<Box<SceneNode>>>,
+    main_rotor: ManuallyDrop<Pin<Box<SceneNode>>>,
+    tail_rotor: ManuallyDrop<Pin<Box<SceneNode>>>,
+}
+
+impl Helicopter {
+    pub fn  new(path_offset: f32, main_rotor_speed: f32, tail_rotor_speed: f32) -> Helicopter {
+        let helicopter_mesh: mesh::Helicopter = mesh::Helicopter::load("./resources/helicopter.obj");
+        let helicopter_body_mesh: mesh::Mesh = helicopter_mesh.body;
+        let helicopter_door_mesh: mesh::Mesh = helicopter_mesh.door;
+        let helicopter_main_rotor_mesh: mesh::Mesh = helicopter_mesh.main_rotor;
+        let helicopter_tail_rotor_mesh: mesh::Mesh = helicopter_mesh.tail_rotor;
+        let body_vao = unsafe{create_vao_from_mesh(&helicopter_body_mesh)};
+        let door_vao = unsafe{create_vao_from_mesh(&helicopter_door_mesh)};
+        let main_rotor_vao = unsafe{  create_vao_from_mesh(&helicopter_main_rotor_mesh)};
+        let tail_rotor_vao= unsafe{create_vao_from_mesh(&helicopter_tail_rotor_mesh)};
+        Helicopter {
+            path_offset,
+            main_rotor_speed,
+            tail_rotor_speed,
+            body: SceneNode::from_vao(body_vao, helicopter_body_mesh.index_count),
+            door: SceneNode::from_vao(door_vao, helicopter_door_mesh.index_count),
+            main_rotor: SceneNode::from_vao(main_rotor_vao, helicopter_main_rotor_mesh.index_count),
+            tail_rotor: SceneNode::from_vao(tail_rotor_vao, helicopter_tail_rotor_mesh.index_count)
+        }
+    }
+
+    pub fn addToNode(&mut self, node: &mut SceneNode){
+        self.tail_rotor.reference_point = glm::Vec3::new(0.35, 2.3, 10.4);
+        node.add_child(&self.body);
+        self.body.add_child(&self.door);
+        self.body.add_child(&self.main_rotor);
+        self.body.add_child(&self.tail_rotor);
+    }
+
+    pub fn animate(&mut self, elapsed: f32){
+        // Compute animations
+        let time = elapsed + self.path_offset;
+        self.main_rotor.rotation.y = time * 10.0;
+        self.tail_rotor.rotation.x = time * 10.0;
+        let heading: toolbox::Heading =  toolbox::simple_heading_animation(time);
+        self.body.position.x = heading.x;
+        self.body.position.z = heading.z;
+        self.body.rotation.x = heading.pitch;
+        self.body.rotation.y = heading.yaw;
+        self.body.rotation.z = heading.roll;
+    }
+                
 }
 
 fn main() {
@@ -256,30 +328,21 @@ fn main() {
         // Load models and build VAOs
         let moon_mesh: mesh::Mesh = mesh::Terrain::load("./resources/lunarsurface.obj");
         let moon_vao = unsafe {create_vao_from_mesh(&moon_mesh)};
-        let helicopter_mesh: mesh::Helicopter = mesh::Helicopter::load("./resources/helicopter.obj");
-        let helicopter_body_mesh: mesh::Mesh = helicopter_mesh.body;
-        let helicopter_door_mesh: mesh::Mesh = helicopter_mesh.door;
-        let helicopter_main_rotor_mesh: mesh::Mesh = helicopter_mesh.main_rotor;
-        let helicopter_tail_rotor_mesh: mesh::Mesh = helicopter_mesh.tail_rotor;
-        let helicopter_body_vao = unsafe{create_vao_from_mesh(&helicopter_body_mesh)};
-        let helicopter_door_vao = unsafe{create_vao_from_mesh(&helicopter_door_mesh)};
-        let helicopter_main_rotor_vao = unsafe{create_vao_from_mesh(&helicopter_main_rotor_mesh)};
-        let helicopter_tail_rotor_vao = unsafe{create_vao_from_mesh(&helicopter_tail_rotor_mesh)};
-                
+        let mut helicopters: Vec<Helicopter> = Vec::new();
+        let num_of_helicopters: usize = 5;
+        let animation_offset: f32 = 10.0;
+
+        for i in 0..num_of_helicopters {
+            helicopters.push(Helicopter::new(i as f32 * animation_offset, 10.0, 7.5));
+        }
+            
         // Setup Scene Graph
         let mut scene = SceneNode::new();
         let mut terrain = SceneNode::from_vao(moon_vao, moon_mesh.index_count);
-        let mut helicopter_body = SceneNode::from_vao(helicopter_body_vao, helicopter_body_mesh.index_count);
-        let mut helicopter_door = SceneNode::from_vao(helicopter_door_vao, helicopter_door_mesh.index_count);
-        let mut helicopter_main_rotor = SceneNode::from_vao(helicopter_main_rotor_vao, helicopter_main_rotor_mesh.index_count);
-        let mut helicopter_tail_rotor = SceneNode::from_vao(helicopter_tail_rotor_vao, helicopter_tail_rotor_mesh.index_count);
         scene.add_child(&terrain);
-        terrain.add_child(&helicopter_body);
-        helicopter_body.add_child(&helicopter_door);
-        helicopter_body.add_child(&helicopter_main_rotor);
-        helicopter_body.add_child(&helicopter_tail_rotor);
-
-
+        for i in 0..num_of_helicopters {
+            helicopters[i].addToNode(&mut scene);
+        }
         // Shader setup
         let simple_shader;
         unsafe {
@@ -305,6 +368,10 @@ fn main() {
             let elapsed = now.duration_since(first_frame_time).as_secs_f32();
             let delta_time = now.duration_since(prevous_frame_time).as_secs_f32();
             prevous_frame_time = now;
+            
+            for i in 0..num_of_helicopters {
+                helicopters[i].animate(elapsed);
+            }
 
             // Handle resize events
             if let Ok(mut new_size) = window_size.lock() {
@@ -413,7 +480,7 @@ fn main() {
 
                 // Scene drawing
                 let id: glm::Mat4 = glm::identity();
-                draw_scene(&scene, &transf, &id, &simple_shader);
+                draw_scene(&scene, transf, id, &simple_shader);
             }   
 
             // Display the new color buffer on the display
