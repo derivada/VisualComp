@@ -36,7 +36,6 @@ impl SceneNode {
             rotation        : glm::zero(),
             scale           : glm::vec3(1.0, 1.0, 1.0),
             reference_point : glm::zero(),
-            current_transformation_matrix: glm::identity(),
             vao_id          : 0,
             index_count     : -1,
             children        : vec![],
@@ -49,7 +48,6 @@ impl SceneNode {
             rotation        : glm::zero(),
             scale           : glm::vec3(1.0, 1.0, 1.0),
             reference_point : glm::zero(),
-            current_transformation_matrix: glm::identity(),
             vao_id,
             index_count,
             children: vec![],
@@ -74,7 +72,6 @@ impl SceneNode {
 
     #[allow(dead_code)]
     pub fn print(&self) {
-        let m = self.current_transformation_matrix;
         println!(
 "SceneNode {{
     VAO:       {}
@@ -83,11 +80,6 @@ impl SceneNode {
     Position:  [{:.2}, {:.2}, {:.2}]
     Rotation:  [{:.2}, {:.2}, {:.2}]
     Reference: [{:.2}, {:.2}, {:.2}]
-    Current Transformation Matrix:
-        {:.2}  {:.2}  {:.2}  {:.2}
-        {:.2}  {:.2}  {:.2}  {:.2}
-        {:.2}  {:.2}  {:.2}  {:.2}
-        {:.2}  {:.2}  {:.2}  {:.2}
 }}",
             self.vao_id,
             self.index_count,
@@ -101,10 +93,6 @@ impl SceneNode {
             self.reference_point.x,
             self.reference_point.y,
             self.reference_point.z,
-            m[0], m[4], m[8],  m[12],
-            m[1], m[5], m[9],  m[13],
-            m[2], m[6], m[10], m[14],
-            m[3], m[7], m[11], m[15],
         );
     }
 

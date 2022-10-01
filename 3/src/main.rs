@@ -8,26 +8,14 @@
 #![allow(unused_variables)]
 
 extern crate nalgebra_glm as glm;
-use core::panic;
-use mesh::{Mesh, Terrain};
-use rand;
-use std::cmp::min_by;
-use std::f32::consts::PI;
-use std::ptr::null;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::{mem, os::raw::c_void, ptr};
 
-mod mesh;
 mod shader;
 mod util;
+mod mesh;
+mod scene_graph;
 
-use gl::types::GLuint;
-use gl::{
-    BindBuffer, BindVertexArray, BufferData, DrawElements, GenBuffers, GenVertexArrays,
-    VertexAttribPointer, ARRAY_BUFFER, STATIC_DRAW,
-};
-use glm::{diagonal4x4, identity, pi, vec4, Vec4};
+use gl::{self, TRIANGLES};
+use glm :: {identity, Vec4};
 use glutin::event::{
     DeviceEvent,
     ElementState::{Pressed, Released},
@@ -36,7 +24,12 @@ use glutin::event::{
     WindowEvent,
 };
 use glutin::event_loop::ControlFlow;
-use rand::Rng;
+use shader::Shader;
+use std::f32::consts::PI;
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+use std::{mem, os::raw::c_void, ptr};
+use scene_graph::SceneNode;
 
 // initial window size
 const INITIAL_SCREEN_W: u32 = 800;
@@ -70,6 +63,10 @@ fn offset<T>(n: u32) -> *const c_void {
 
 // Get a null pointer (equivalent to an offset of 0)
 // ptr::null()
+
+unsafe fn create_vao_from_mesh(mesh: &mesh::Mesh) -> u32{
+    return create_vao(&mesh.vertices, &mesh.indices, &mesh.colors, &mesh.normals);
+}
 
 unsafe fn create_vao(
     vertices: &Vec<f32>,
@@ -149,7 +146,7 @@ unsafe fn create_vao(
         2,
         3,
         gl::FLOAT,
-        gl::FALSE,
+        gl::TRUE,
         3 * size_of::<f32>(),
         offset::<f32>(0),
     );
@@ -169,6 +166,23 @@ unsafe fn create_vao(
     );
     // And we return the VAO id
     return vao;
+}
+
+unsafe fn draw_scene(node: &scene_graph::SceneNode,
+    view_projection_matrix: &glm::Mat4,
+    transformation_so_far: &glm::Mat4,
+    vertex_shader: &Shader) {
+    // Check if node is drawable, if so: set uniforms and draw
+    if node.index_count > 0 {
+        gl::BindVertexArray(node.vao_id);
+        gl::UniformMatrix4fv(vertex_shader.get_uniform_location("view_proj"), 1, gl::FALSE, view_projection_matrix.as_ptr());
+        gl::UniformMatrix4fv(vertex_shader.get_uniform_location("trasnf"), 1, gl::FALSE, transformation_so_far.as_ptr());
+        gl::DrawElements(gl::TRIANGLES, node.index_count, gl::UNSIGNED_INT, offset::<u32>(0));
+    }
+    // Recurse
+    for &child in &node.children {
+        draw_scene(&*child, view_projection_matrix, transformation_so_far, vertex_shader);
+    }   
 }
 
 fn main() {
@@ -239,16 +253,32 @@ fn main() {
             );
         }
 
-        // Scene setup
-        let moon_mesh: mesh::Mesh = Terrain::load("./resources/lunarsurface.obj");
-        let moon_vao = unsafe {
-            create_vao(
-                &moon_mesh.vertices,
-                &moon_mesh.indices,
-                &moon_mesh.colors,
-                &moon_mesh.normals,
-            )
-        };
+        // Load models and build VAOs
+        let moon_mesh: mesh::Mesh = mesh::Terrain::load("./resources/lunarsurface.obj");
+        let moon_vao = unsafe {create_vao_from_mesh(&moon_mesh)};
+        let helicopter_mesh: mesh::Helicopter = mesh::Helicopter::load("./resources/helicopter.obj");
+        let helicopter_body_mesh: mesh::Mesh = helicopter_mesh.body;
+        let helicopter_door_mesh: mesh::Mesh = helicopter_mesh.door;
+        let helicopter_main_rotor_mesh: mesh::Mesh = helicopter_mesh.main_rotor;
+        let helicopter_tail_rotor_mesh: mesh::Mesh = helicopter_mesh.tail_rotor;
+        let helicopter_body_vao = unsafe{create_vao_from_mesh(&helicopter_body_mesh)};
+        let helicopter_door_vao = unsafe{create_vao_from_mesh(&helicopter_door_mesh)};
+        let helicopter_main_rotor_vao = unsafe{create_vao_from_mesh(&helicopter_main_rotor_mesh)};
+        let helicopter_tail_rotor_vao = unsafe{create_vao_from_mesh(&helicopter_tail_rotor_mesh)};
+                
+        // Setup Scene Graph
+        let mut scene = SceneNode::new();
+        let mut terrain = SceneNode::from_vao(moon_vao, moon_mesh.index_count);
+        let mut helicopter_body = SceneNode::from_vao(helicopter_body_vao, helicopter_body_mesh.index_count);
+        let mut helicopter_door = SceneNode::from_vao(helicopter_door_vao, helicopter_door_mesh.index_count);
+        let mut helicopter_main_rotor = SceneNode::from_vao(helicopter_main_rotor_vao, helicopter_main_rotor_mesh.index_count);
+        let mut helicopter_tail_rotor = SceneNode::from_vao(helicopter_tail_rotor_vao, helicopter_tail_rotor_mesh.index_count);
+        scene.add_child(&terrain);
+        terrain.add_child(&helicopter_body);
+        helicopter_body.add_child(&helicopter_door);
+        helicopter_body.add_child(&helicopter_main_rotor);
+        helicopter_body.add_child(&helicopter_tail_rotor);
+
 
         // Shader setup
         let simple_shader;
@@ -290,7 +320,7 @@ fn main() {
             }
 
             // Handle keyboard input
-            let speed_multiplier = 100.0;
+            let speed_multiplier = 25.0;
             if let Ok(keys) = pressed_keys.lock() {
                 for key in keys.iter() {
                     match key {
@@ -311,30 +341,30 @@ fn main() {
                         }
                         VirtualKeyCode::A => {
                             let cameraDelta: Vec4 = camera_mov_correction
-                                * Vec4::new(-delta_time * speed_multiplier, 0.0, 0.0, 1.0);
+                                * Vec4::new(delta_time * speed_multiplier, 0.0, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::D => {
                             let cameraDelta: Vec4 = camera_mov_correction
-                                * Vec4::new(delta_time * speed_multiplier, 0.0, 0.0, 1.0);
+                                * Vec4::new(-delta_time * speed_multiplier, 0.0, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::Space => {
                             let cameraDelta: Vec4 = camera_mov_correction
-                                * Vec4::new(0.0, delta_time * speed_multiplier, 0.0, 1.0);
+                                * Vec4::new(0.0, -delta_time * speed_multiplier, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::LShift => {
                             let cameraDelta: Vec4 = camera_mov_correction
-                                * Vec4::new(0.0, -delta_time * speed_multiplier, 0.0, 1.0);
+                                * Vec4::new(0.0, delta_time * speed_multiplier, 0.0, 1.0);
                             camera_pos += cameraDelta.xyz();
                         }
                         VirtualKeyCode::Up => {
                             // Here we limit camera pitch movement so we can only rotate it to straight up or straight down
-                            camera_pitch = (camera_pitch + delta_time).min(PI / 2.0);
+                            camera_pitch = (camera_pitch - delta_time).min(PI / 2.0);
                         }
                         VirtualKeyCode::Down => {
-                            camera_pitch = (camera_pitch - delta_time).max(-PI / 2.0);
+                            camera_pitch = (camera_pitch + delta_time).max(-PI / 2.0);
                         }
                         VirtualKeyCode::Left => {
                             camera_yaw -= delta_time;
@@ -347,7 +377,7 @@ fn main() {
                     }
                 }
             }
-            println!("x = {}, y = {}, z = {}, yaw = {}, pitch = {}", camera_pos.x, camera_pos.y, camera_pos.z, camera_yaw, camera_pitch);
+            // println!("x = {}, y = {}, z = {}, yaw = {}, pitch = {}", camera_pos.x, camera_pos.y, camera_pos.z, camera_yaw, camera_pitch);
             // Handle mouse movement. delta contains the x and y movement of the mouse since last frame in pixels
             if let Ok(mut delta) = mouse_delta.lock() {
                 // == // Optionally access the acumulated mouse movement between
@@ -356,21 +386,24 @@ fn main() {
                 *delta = (0.0, 0.0); // reset when done
             }
             // Camera transforms computing
-            let id: glm::Mat4 = glm::identity();
-            let persp: glm::Mat4 = glm::perspective(window_aspect_ratio, PI / 2.0, 1.0, 1000.0);
+            // Perspective transformation, we choose FOV = 60º
+            let persp: glm::Mat4 = glm::perspective(window_aspect_ratio, PI/3.0, 1.0, 1000.0);
             // xyz camera position translation
-            let camera_transl: glm::Mat4 = glm::translate(&id, &camera_pos);
+            let camera_transl: glm::Mat4 = glm::translation(&camera_pos);
             // Yaw rotation
             let rot_yaw_axis: glm::Vec3 = glm::Vec3::new(0.0, 1.0, 0.0);
-            let rot_yaw: glm::Mat4 = glm::rotate(&id, -camera_yaw, &rot_yaw_axis);
+            let rot_yaw: glm::Mat4 = glm::rotation( camera_yaw, &rot_yaw_axis);
             // Pitch rotation
             let rot_pitch_axis: glm::Vec3 = glm::Vec3::new(1.0, 0.0, 0.0);
-            let rot_pitch: glm::Mat4 = glm::rotate(&id, camera_pitch, &rot_pitch_axis);
+            let rot_pitch: glm::Mat4 = glm::rotation( camera_pitch, &rot_pitch_axis);
+
             let camera_rot: glm::Mat4 = rot_pitch * rot_yaw;
+
             // Inverse rotation matrix (for the voluntary ex. 1 camera movement correction, view key handler for use)
             // We don't invert the rotation matrix, we create another one with a inverse (-deegree) rotation, which is faster
-            camera_mov_correction = glm::rotate(&id, camera_yaw, &rot_yaw_axis)
-                * glm::rotate(&id, -camera_pitch, &rot_pitch_axis);
+            camera_mov_correction = glm::rotation(-camera_yaw, &rot_yaw_axis)
+                * glm::rotation(-camera_pitch, &rot_pitch_axis);
+
             // Compute the final transformation passed to the vertex shader
             let transf: glm::Mat4 = persp * camera_rot * camera_transl;
             unsafe {
@@ -379,16 +412,10 @@ fn main() {
                 gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
                 // Scene drawing
-                BindVertexArray(moon_vao);
-                // We pass the transformation matrix to the vertex shader as an uniform variable
-                gl::UniformMatrix4fv(3, 1, gl::FALSE, transf.as_ptr());
-                DrawElements(
-                    gl::TRIANGLES,
-                    moon_mesh.index_count / 3,
-                    gl::UNSIGNED_INT,
-                    offset::<u32>(0),
-                );
-            }
+                let id: glm::Mat4 = glm::identity();
+                draw_scene(&scene, &transf, &id, &simple_shader);
+            }   
+
             // Display the new color buffer on the display
             context.swap_buffers().unwrap(); // we use "double buffering" to avoid artifacts
         }
