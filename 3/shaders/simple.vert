@@ -10,9 +10,12 @@ layout(location = 4) uniform mat4 normal_matrix;
 out vec4 fragColor;
 out vec3 fragNormal;
 
+mat4 ignored;
+
 void main()
 {
     gl_Position = mvp_matrix * vec4(position, 1.0f);
     fragColor = color;
-    fragNormal = normalize(mat3(normal_matrix) * normal);
+    fragNormal = normal;
+    fragNormal = normalize(mat3(normal_matrix) * normal); // Normal matrix correction
 }

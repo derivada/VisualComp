@@ -6,8 +6,7 @@ out vec4 outColor;
 
 void main()
 {
-    // outColor = fragNormal; // Normal color
-    // outColor = fragColor; // Solid color
+    // outColor = vec4(fragNormal, 1.0f); // Normal vector color
 	// Basic lightning 
     vec3 lightDirection = normalize(vec3(0.8, -0.5, 0.6));
     outColor.x = fragColor.x * max(0, dot(fragNormal, -lightDirection));

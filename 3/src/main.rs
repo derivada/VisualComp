@@ -24,7 +24,6 @@ use glutin::event::{
     WindowEvent,
 };
 use glutin::event_loop::ControlFlow;
-use shader::Shader;
 use std::{f32::consts::PI, mem::ManuallyDrop, pin::Pin};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -168,10 +167,12 @@ unsafe fn create_vao(
     return vao;
 }
 
+/**
+ * Draws the scene specified in node, with the VP matrix. Should pass an identity matrix as the transformation_so_far argument
+ */
 unsafe fn draw_scene(node: &scene_graph::SceneNode,
     view_projection_matrix: glm::Mat4,
-    mut transformation_so_far: glm::Mat4,
-    vertex_shader: &Shader) {
+    mut transformation_so_far: glm::Mat4) {
     // Compute relative transformation from node position and rotation
     let mut relative_trans: glm::Mat4 = glm::identity(); 
     relative_trans = glm::translation(&-node.reference_point) * relative_trans; // Reference point to origin
@@ -198,14 +199,20 @@ unsafe fn draw_scene(node: &scene_graph::SceneNode,
     }
     // Recurse
     for &child in &node.children {
-        draw_scene(&*child, view_projection_matrix, transformation_so_far, vertex_shader);
+        draw_scene(&*child, view_projection_matrix, transformation_so_far);
     }   
 }
 
+/**
+ * A Class for an Helicopter object that contains its scene nodes and some variables to control their animation.
+ * It also contains the methods addToNode(), that attaches it to a parent SceneNode and animate(), that changes its
+ * position given a timestamp.
+ */
 pub struct Helicopter {
     pub path_offset: f32,
     pub main_rotor_speed: f32,
     pub tail_rotor_speed: f32,
+    pub animation_speed: f32,
     body: ManuallyDrop<Pin<Box<SceneNode>>>,
     door: ManuallyDrop<Pin<Box<SceneNode>>>,
     main_rotor: ManuallyDrop<Pin<Box<SceneNode>>>,
@@ -213,12 +220,11 @@ pub struct Helicopter {
 }
 
 impl Helicopter {
-    pub fn  new(path_offset: f32, main_rotor_speed: f32, tail_rotor_speed: f32) -> Helicopter {
-        let helicopter_mesh: mesh::Helicopter = mesh::Helicopter::load("./resources/helicopter.obj");
-        let helicopter_body_mesh: mesh::Mesh = helicopter_mesh.body;
-        let helicopter_door_mesh: mesh::Mesh = helicopter_mesh.door;
-        let helicopter_main_rotor_mesh: mesh::Mesh = helicopter_mesh.main_rotor;
-        let helicopter_tail_rotor_mesh: mesh::Mesh = helicopter_mesh.tail_rotor;
+    pub fn  new(helicopter_mesh: &mesh::Helicopter, path_offset: f32, main_rotor_speed: f32, tail_rotor_speed: f32, animation_speed: f32) -> Helicopter {
+        let helicopter_body_mesh: &mesh::Mesh = &helicopter_mesh.body;
+        let helicopter_door_mesh: &mesh::Mesh = &helicopter_mesh.door;
+        let helicopter_main_rotor_mesh: &mesh::Mesh = &helicopter_mesh.main_rotor;
+        let helicopter_tail_rotor_mesh: &mesh::Mesh = &helicopter_mesh.tail_rotor;
         let body_vao = unsafe{create_vao_from_mesh(&helicopter_body_mesh)};
         let door_vao = unsafe{create_vao_from_mesh(&helicopter_door_mesh)};
         let main_rotor_vao = unsafe{  create_vao_from_mesh(&helicopter_main_rotor_mesh)};
@@ -227,6 +233,7 @@ impl Helicopter {
             path_offset,
             main_rotor_speed,
             tail_rotor_speed,
+            animation_speed,
             body: SceneNode::from_vao(body_vao, helicopter_body_mesh.index_count),
             door: SceneNode::from_vao(door_vao, helicopter_door_mesh.index_count),
             main_rotor: SceneNode::from_vao(main_rotor_vao, helicopter_main_rotor_mesh.index_count),
@@ -245,9 +252,9 @@ impl Helicopter {
     pub fn animate(&mut self, elapsed: f32){
         // Compute animations
         let time = elapsed + self.path_offset;
-        self.main_rotor.rotation.y = time * 10.0;
-        self.tail_rotor.rotation.x = time * 10.0;
-        let heading: toolbox::Heading =  toolbox::simple_heading_animation(time);
+        self.main_rotor.rotation.y = time * self.main_rotor_speed;
+        self.tail_rotor.rotation.x = time * self.tail_rotor_speed;
+        let heading: toolbox::Heading =  toolbox::simple_heading_animation(time * self.animation_speed);
         self.body.position.x = heading.x;
         self.body.position.z = heading.z;
         self.body.rotation.x = heading.pitch;
@@ -325,15 +332,19 @@ fn main() {
             );
         }
 
-        // Load models and build VAOs
+        // We load the models and create the scene
         let moon_mesh: mesh::Mesh = mesh::Terrain::load("./resources/lunarsurface.obj");
+        let helicopter_mesh: mesh::Helicopter = mesh::Helicopter::load("./resources/helicopter.obj");
         let moon_vao = unsafe {create_vao_from_mesh(&moon_mesh)};
         let mut helicopters: Vec<Helicopter> = Vec::new();
+
+        // The following two constants control the number of helicopters and the path offset between them
         let num_of_helicopters: usize = 5;
         let animation_offset: f32 = 10.0;
 
+
         for i in 0..num_of_helicopters {
-            helicopters.push(Helicopter::new(i as f32 * animation_offset, 10.0, 7.5));
+            helicopters.push(Helicopter::new(&helicopter_mesh, i as f32 * animation_offset, 10.0, 10.0, 0.5));
         }
             
         // Setup Scene Graph
@@ -343,6 +354,7 @@ fn main() {
         for i in 0..num_of_helicopters {
             helicopters[i].addToNode(&mut scene);
         }
+        
         // Shader setup
         let simple_shader;
         unsafe {
@@ -369,6 +381,7 @@ fn main() {
             let delta_time = now.duration_since(prevous_frame_time).as_secs_f32();
             prevous_frame_time = now;
             
+            // Animate the helicopters
             for i in 0..num_of_helicopters {
                 helicopters[i].animate(elapsed);
             }
@@ -444,7 +457,7 @@ fn main() {
                     }
                 }
             }
-            // println!("x = {}, y = {}, z = {}, yaw = {}, pitch = {}", camera_pos.x, camera_pos.y, camera_pos.z, camera_yaw, camera_pitch);
+            // println!("x = {}, y = {}, z = {}, yaw = {}, pitch = {}", camera_pos.x, camera_pos.y, camera_pos.z, camera_yaw, camera_pitch); // Debug camera position
             // Handle mouse movement. delta contains the x and y movement of the mouse since last frame in pixels
             if let Ok(mut delta) = mouse_delta.lock() {
                 // == // Optionally access the acumulated mouse movement between
@@ -466,7 +479,7 @@ fn main() {
 
             let camera_rot: glm::Mat4 = rot_pitch * rot_yaw;
 
-            // Inverse rotation matrix (for the voluntary ex. 1 camera movement correction, view key handler for use)
+            // Inverse rotation matrix (for the assignment 2 voluntary ex. 1 camera movement correction, view key handler for use)
             // We don't invert the rotation matrix, we create another one with a inverse (-deegree) rotation, which is faster
             camera_mov_correction = glm::rotation(-camera_yaw, &rot_yaw_axis)
                 * glm::rotation(-camera_pitch, &rot_pitch_axis);
@@ -480,7 +493,7 @@ fn main() {
 
                 // Scene drawing
                 let id: glm::Mat4 = glm::identity();
-                draw_scene(&scene, transf, id, &simple_shader);
+                draw_scene(&scene, transf, id);
             }   
 
             // Display the new color buffer on the display
