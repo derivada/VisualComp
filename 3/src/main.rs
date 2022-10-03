@@ -380,7 +380,7 @@ fn main() {
         let mut helicopters: Vec<Helicopter> = Vec::new();
 
         // The following two constants control the number of helicopters and the path offset between them
-        let num_of_helicopters: usize = 5;
+        let num_of_helicopters: usize = 1;
         let animation_offset: f32 = 10.0;
 
         // For toggling off animations
