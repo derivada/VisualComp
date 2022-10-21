@@ -18,7 +18,8 @@ def greyscale(im):
     Returns:
         im ([type]): [np.array of shape [H, W]]
     """
-
+    # We apply the weighted sum gray_ij = 0.212 * red_ij + 0.7152 * green_ij + 0.0722 * blue_ij to the image
+    im = 0.212 * im[:, :, 0] + 0.7152 * im[:, :, 1] + 0.0722 * im[:, :, 2]
     return im
 
 
@@ -36,5 +37,10 @@ def inverse(im):
     Returns:
         im ([type]): [np.array of shape [H, W]]
     """
-    # YOUR CODE HERE
+    # For the inverse, we simply compute the inverse of every pixel on the image
+    im = 1 - im
     return im
+
+im_grayscale_inverted = inverse(im_greyscale)
+save_im(output_dir.joinpath("lake_greyscale_inv.jpg"), im_grayscale_inverted, cmap="gray")
+plt.imshow(im_grayscale_inverted, cmap="gray")
