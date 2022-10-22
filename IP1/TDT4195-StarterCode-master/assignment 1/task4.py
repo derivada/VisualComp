@@ -7,6 +7,7 @@ import utils
 import dataloaders
 import torchvision
 from trainer import Trainer
+from PIL import Image
 torch.random.manual_seed(0)
 np.random.seed(0)
 
@@ -16,6 +17,7 @@ batch_size = 64
 
 image_transform = torchvision.transforms.Compose([
     torchvision.transforms.ToTensor(),
+    torchvision.transforms.Normalize(mean = 0.5, std = 0.5), # Image normalization
 ])
 
 dataloader_train, dataloader_test = dataloaders.load_dataset(
@@ -73,6 +75,13 @@ trainer = Trainer(
 )
 train_loss_dict, test_loss_dict = trainer.train(num_epochs)
 
+# Task 4b) code
+weight = list(model.children())[1].weight.cpu().data # Get the weights data
+for i in range(10):
+    data = weight[i].reshape([28, 28]).numpy() # Convert the weights of a digit to a 28x28 numpy ndarray
+    normalized_data = (((data - data.min()) / (data.max() - data.min())) * 255.9).astype(np.uint8) # Nrmalize the data to fit the 8-bit range of grayscale images
+    img = Image.fromarray(normalized_data).convert("L") # Create the image using PIL and convert it to grayscale mode
+    img.save("task_4b_weights{}.png".format(i)) # Save the image to the output folder
 
 # We can now plot the training loss with our utility script
 
