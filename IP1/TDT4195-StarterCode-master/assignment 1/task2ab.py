@@ -1,3 +1,6 @@
+# Code for task 2, exercises a, b
+# Pablo Díaz Viñambres
+
 import matplotlib.pyplot as plt
 import pathlib
 from utils import read_im, save_im
@@ -37,7 +40,7 @@ def inverse(im):
     Returns:
         im ([type]): [np.array of shape [H, W]]
     """
-    # For the inverse, we simply compute the inverse of every pixel on the image
+    # For the inverse, we simply compute the inverse of every pixel on the image since the image is in the 0-1 range
     im = 1 - im
     return im
 

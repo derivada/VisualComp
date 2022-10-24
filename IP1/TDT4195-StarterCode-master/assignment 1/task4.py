@@ -1,3 +1,6 @@
+# Code for task 4
+# Pablo Díaz Viñambres
+
 from cProfile import run
 import torch
 import torch.nn as nn
@@ -16,6 +19,7 @@ np.random.seed(0)
 # Load the dataset and print some stats
 batch_size = 64
 
+# Normalized image transform
 image_transform_normalized = torchvision.transforms.Compose([
     torchvision.transforms.ToTensor(),
     torchvision.transforms.Normalize(mean = 0.5, std = 0.5), # Add image normalization
@@ -31,7 +35,7 @@ example_images, _ = next(iter(dataloader_train))
 print(f"The tensor containing the images has shape: {example_images.shape} (batch size, number of color channels, height, width)",
       f"The maximum value in the image is {example_images.max()}, minimum: {example_images.min()}", sep="\n\t")
 
-
+# Original model
 def create_model():
     """
         Initializes the mode. Edit the code below if you would like to change the model.
@@ -45,6 +49,7 @@ def create_model():
     model = utils.to_cuda(model)
     return model
 
+# Model for task 4d
 def create_model_hidden_layer():
     """
         Initializes the model with a hidden layer of 64 nodes in the network and ReLU as its activation function
@@ -99,9 +104,10 @@ for i in range(10):
     data = weight[i].reshape([28, 28]).numpy() # Convert the weights of a digit to a 28x28 numpy ndarray
     normalized_data = (((data - data.min()) / (data.max() - data.min())) * 255.9).astype(np.uint8) # Nrmalize the data to fit the 8-bit range of grayscale images
     img = Image.fromarray(normalized_data).convert("L") # Create the image using PIL and convert it to grayscale mode
-    img.save("image_solutions/task_4b_weights{}.png".format(i)) # Save the image to the output folder
+    img.save("image_solutions/task4b_{}.png".format(i)) # Save the image to the output folder
 
 # We can now plot the training loss with our utility script
+# Commented the regular plot since the only ones that go to the report are the comparison ones
 '''
 # Plot loss
 utils.plot_loss(train_loss_dict, label="Train Loss")
@@ -202,6 +208,8 @@ def run_task(task):
     print('    Task 4{} done    '.format(task))
     print('---------------------')
 
-# run_task('a')
+# Can only run 1 task at the same time because the comparison plot gets crowded and don't know how to reset it
+# Task b is always run as it's part of the original model setup
+run_task('a')
 # run_task('c')
-run_task('d')
+# run_task('d')

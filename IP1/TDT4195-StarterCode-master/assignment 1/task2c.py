@@ -1,3 +1,6 @@
+# Code for task 2, exercise c
+# Pablo Díaz Viñambres
+
 import matplotlib.pyplot as plt
 import pathlib
 import numpy as np
@@ -22,20 +25,23 @@ def convolve_im(im, kernel,
     Returns:
         [type]: [np.array of shape [H, W, 3]. should be same as im]
     """
+    start = time.perf_counter() # Performance counter for testing optimizations
     # Convolve for each color channel
-    start = time.perf_counter()
     for ch in range(3):
+        # We make another matrix since the overlap of the kernel would alter the results 
         tmp_convolve = np.zeros(im.shape[0:2])
         row_margin = int((kernel.shape[0] - 1) / 2)
         col_margin = int((kernel.shape[1] - 1) / 2)
         for i in range(row_margin, im.shape[0] - row_margin):
-            for j in range(col_margin, im.shape[1] - col_margin):
-                tmp_convolve[i, j] = np.sum(kernel[:, :] * 
-                    im[i - row_margin : i + row_margin + 1, j - col_margin : j + col_margin + 1, ch])
-                # Slower version
+            for j in range(col_margin, im.shape[1] - col_margin): 
+                # Numpy operators make the operation faster, we extract the correct square from the original values matrix 
+                # and multiply it element wise with the kernel 
+                tmp_convolve[i, j] = np.sum(kernel[:, :] * im[i - row_margin : i + row_margin + 1, j - col_margin : j + col_margin + 1, ch])
+                # Slower version without numpy operators
                 # for k in range(kernel.shape[0]):
                 #     for l in range(kernel.shape[1]):
                 #         tmp_convolve[i, j] += kernel[k, l] * im[i - k, j - l, ch]
+        # Copy back to image channel
         im[:, :, ch] = tmp_convolve
     stop = time.perf_counter()
     print('time elapsed: {}'.format(stop-start))
